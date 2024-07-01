@@ -7,32 +7,63 @@ const { diffLines } = require('diff');
 // Handler function for Vercel serverless function
 module.exports = async (req, res) => {
   const { repo1, repo2 } = req.query;
-  const fileName = 'file-to-check.txt'; // Adjust this to the file you want to compare
 
   try {
-    // Fetch file from repo1
-    const file1Response = await fetch(`https://raw.githubusercontent.com/${repo1}/main/${fileName}`);
-    if (!file1Response.ok) {
-      throw new Error(`Failed to fetch file from ${repo1}`);
-    }
-    const file1Text = await file1Response.text();
+    // Fetch files from repo1
+    const files1 = await fetchFiles(repo1);
 
-    // Fetch file from repo2
-    const file2Response = await fetch(`https://raw.githubusercontent.com/${repo2}/main/${fileName}`);
-    if (!file2Response.ok) {
-      throw new Error(`Failed to fetch file from ${repo2}`);
-    }
-    const file2Text = await file2Response.text();
+    // Fetch files from repo2
+    const files2 = await fetchFiles(repo2);
 
-    // Perform diff comparison
-    const diff = diffLines(file1Text, file2Text);
+    // Compare files and find differences
+    const differences = compareFiles(files1, files2);
 
-    // Prepare response with differences
-    const differences = diff.filter(part => part.added || part.removed);
-
+    // Send response with differences
     res.status(200).json({ differences });
   } catch (error) {
     console.error('Error fetching and comparing files:', error);
     res.status(500).json({ error: 'Failed to fetch and compare files' });
   }
 };
+
+// Function to fetch files from a GitHub repository
+async function fetchFiles(repo) {
+  const baseUrl = `https://api.github.com/repos/${repo}/contents`;
+  const response = await fetch(baseUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch files from ${repo}`);
+  }
+  const files = await response.json();
+  return files;
+}
+
+// Function to compare files from two repositories
+function compareFiles(files1, files2) {
+  const differences = [];
+
+  // Compare files in repo1 with repo2
+  for (const file1 of files1) {
+    const found = files2.find(file2 => file2.name === file1.name);
+    if (!found || found.sha !== file1.sha) {
+      differences.push({
+        name: file1.name,
+        location: file1.path,
+        repository: file1.repository.full_name
+      });
+    }
+  }
+
+  // Compare files in repo2 with repo1
+  for (const file2 of files2) {
+    const found = files1.find(file1 => file1.name === file2.name);
+    if (!found || found.sha !== file2.sha) {
+      differences.push({
+        name: file2.name,
+        location: file2.path,
+        repository: file2.repository.full_name
+      });
+    }
+  }
+
+  return differences;
+}
